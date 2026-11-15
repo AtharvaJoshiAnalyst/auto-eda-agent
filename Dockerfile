@@ -6,6 +6,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
 
 COPY app ./app
+COPY .streamlit ./.streamlit
 ENV PATH="/app/.venv/bin:$PATH"
 
 EXPOSE 7860
