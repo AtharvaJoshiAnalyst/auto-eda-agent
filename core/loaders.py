@@ -46,6 +46,7 @@ def load_file(name: str, data: bytes) -> LoadedFile:
     result = loaders[file_type](data)
     result.name = name
     result.file_type = file_type
+    result.tables = [_parse_dates(df) for df in result.tables]  # convert text columns that are mostly dates to datetime
     return result
 
 # ------------ individual loaders for each file type -----------------
@@ -120,7 +121,22 @@ def _rows_to_dataframe(rows: list[list]) -> pd.DataFrame | None:
             df[col] = converted
             
     return df
+
+
     
+def _parse_dates(df: pd.DataFrame) -> pd.DataFrame:
+    """Convert text columns that are mostly dates (e.g. '2026-01-05' or '05/01/2026') to datetime."""
+    for col in df.columns:
+        s = df[col]
+        if not pd.api.types.is_string_dtype(s) or s.notna().sum() == 0:
+            continue
+        if pd.to_numeric(s, errors="coerce").notna().mean() > 0.5:
+            continue  # numbers stored as text, not dates
+        parsed = pd.to_datetime(s, errors="coerce", format="mixed", dayfirst=True)  # UK day/month order
+        if parsed.notna().sum() >= 0.8 * s.notna().sum():
+            df[col] = parsed
+    return df
+
 
 def _clean_headers(header: list) -> list[str]:
     """Fill blank column names and make duplicates unique."""

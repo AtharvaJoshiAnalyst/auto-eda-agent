@@ -40,6 +40,7 @@ def profile_dataframe(df: pd.DataFrame) -> dict:
             desc = s.describe()
             info.update({k: _round(desc[k]) for k in ["mean", "std", "min", "25%", "50%", "75%", "max"]})
             info["outliers_iqr"] = _count_outliers(s)
+            info["is_sequence"] = _is_sequence(s)
         elif info["kind"] in ("categorical", "text"):
             top = s.value_counts().head(5)
             info["top_values"] = {str(k): int(v) for k, v in top.items()}
@@ -65,6 +66,17 @@ def _column_kind(s: pd.Series) -> str:
         return "categorical"
     return "text"  
 
+def _is_sequence(s: pd.Series) -> bool:
+    """True for whole numbers that count up by 1 with no gaps, like 0, 1, 2, 3 (an ID or row index).
+
+    A few repeats are allowed, because duplicate rows repeat their IDs too.
+    """
+    values = s.dropna()
+    unique = values.unique()
+    if len(unique) < 2 or len(unique) < 0.95 * len(s) or (values % 1 != 0).any():
+        return False
+    return bool(unique.max() - unique.min() + 1 == len(unique))  # plain bool, not numpy.bool_
+
 
 def _count_outliers(s: pd.Series) -> int:
     """ Count the number of outliers in a numeric series using the IQR method. """
@@ -79,11 +91,11 @@ def _column_warnings(info: dict, rows: int) -> list[str]:
     if info["missing"] / rows > high_missing:
         warnings.append(f"Column '{name}' has {info['missing_pct']}% missing values.")
     if info["unique"] == 1:
-        warnings.append(f"Column '{name}' has a single constant value and adds no information.")
+        warnings.append(f"'{name}' has a single constant value and adds no information.")
+    if info.get("is_sequence"):
+        warnings.append(f"'{name}' counts up by 1 in every row; it is probably an ID or row index.")
     if info["kind"] == "text" and info["unique"] / rows > high_Cardinality:
         warnings.append(f"Column '{name}' has almost all uniques ({info['unique']} maybe free text or ID values).") 
-    if info["kind"] == "numeric" and info["unique"] == rows:
-        warnings.append(f"'{name}' has a different value in every row; it may be an ID or row index.")
     if info.get("outliers_iqr",0)  > 0:
         warnings.append(f"Column '{name}' has {info['outliers_iqr']} potential outliers (IQR method).")
     return warnings

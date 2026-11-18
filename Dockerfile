@@ -7,6 +7,7 @@ RUN uv sync --frozen --no-dev
 
 COPY app ./app
 COPY core ./core
+COPY agent ./agent
 COPY .streamlit ./.streamlit
 ENV PATH="/app/.venv/bin:$PATH"
 

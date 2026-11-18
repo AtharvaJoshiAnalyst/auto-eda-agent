@@ -1,3 +1,4 @@
+import pandas as pd
 import pytest
 
 from core.loaders import UnsupportedFileError, load_file
@@ -34,3 +35,11 @@ def test_pdf_extracts_text_and_table(pdf_bytes):
 def test_unsupported_type_raises():
     with pytest.raises(UnsupportedFileError):
         load_file("notes.txt", b"hello")
+        
+
+def test_text_dates_become_datetime():
+    csv = b"order_date,city\n2026-01-05,Leeds\n2026-01-08,Bath\n2026-01-11,York\n"
+    df = load_file("orders.csv", csv).tables[0]
+    assert pd.api.types.is_datetime64_any_dtype(df["order_date"])
+    assert not pd.api.types.is_datetime64_any_dtype(df["city"])
+    
