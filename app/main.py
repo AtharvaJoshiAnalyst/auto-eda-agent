@@ -3,6 +3,7 @@ import json
 import pandas as pd
 import streamlit as st
 
+from agent.code_agent import answer_question
 from agent.planner import PlanResult, fallback_plan, make_plan
 from agent.tools import ToolError, run_tool
 from core.llm import LLMClient, LLMError
@@ -99,6 +100,59 @@ def show_analysis(df: pd.DataFrame, profile: dict) -> None:
                 st.json(result.facts)
 
 
+MAX_QUESTION_CHARS = 300
+MAX_QUESTIONS_PER_SESSION = 20  # protects the free LLM quota on the public app
+
+
+def show_result(result) -> None:
+    if result.kind == "figure":
+        st.plotly_chart(result.value, use_container_width=True)
+    elif result.kind == "table":
+        st.dataframe(result.value)
+    else:
+        st.markdown(f"### {result.value}")
+
+
+def show_question_box(df: pd.DataFrame, profile: dict, key: str) -> None:
+    st.markdown("#### 💬 Ask your own question")
+    if not (use_ai and llm):
+        st.caption("Switch on the AI planner (and configure an LLM) to ask questions.")
+        return
+
+    with st.form(f"question_form_{key}"):
+        question = st.text_input("Question", max_chars=MAX_QUESTION_CHARS,
+                                 placeholder="e.g. Which product earned the most revenue in the North region?")
+        asked = st.form_submit_button("Ask")
+
+    used = st.session_state.get("questions_asked", 0)
+    if asked and question.strip():
+        if used >= MAX_QUESTIONS_PER_SESSION:
+            st.warning(f"Question limit reached ({MAX_QUESTIONS_PER_SESSION} per session).")
+        else:
+            st.session_state["questions_asked"] = used + 1
+            with st.spinner("Writing and running code in the sandbox..."):
+                st.session_state[f"answer_{key}"] = (question, answer_question(question, df, profile, llm))
+
+    if f"answer_{key}" not in st.session_state:
+        return
+    question, answer = st.session_state[f"answer_{key}"]
+    st.markdown(f"**Q:** {question}")
+    if answer.ok:
+        st.success(answer.explanation or "Answer")
+        show_result(answer.result)
+        st.caption("⚠️ AI-written analysis can be wrong even when the code runs. Check the code below.")
+    else:
+        st.error(f"Sorry, I couldn't answer that safely. {answer.error[:300]}")
+
+    with st.expander(f"🔍 Generated code ({answer.attempts} attempt{'s' if answer.attempts != 1 else ''})"):
+        st.code(answer.code or "# no code", language="python")
+        for h in answer.history:
+            status = "✅ ran successfully" if h["ok"] else f"❌ {h['error'][:200]}"
+            st.caption(f"Attempt {h['attempt']}: {status}")
+        st.caption("Every attempt was checked for unsafe code, then run in an isolated process "
+                   "with no network, no secrets and time and memory limits.")
+
+
 # ---------- main flow ----------
 
 uploaded = st.file_uploader("Upload a file", type=SUPPORTED_TYPES)
@@ -126,6 +180,7 @@ if uploaded:
         profile = profile_dataframe(df)
         show_profile(df, profile)
         show_analysis(df, profile)
+        show_question_box(df, profile, key=f"{uploaded.name}_{i}")
         st.divider()
 
     if path in ("text", "both"):
